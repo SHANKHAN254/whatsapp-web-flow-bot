@@ -1,67 +1,35 @@
 /**
  * server.js
- * WhatsApp Web Bot that:
- *  - Generates a QR code for login
- *  - Immediately shows a button menu on the user's first message
- *  - Lets the user re-trigger the menu by typing "menu"
+ *
+ * This bot uses whatsapp-web.js to:
+ *   - Generate a QR code on startup for login.
+ *   - Immediately send an interactive button menu when any client sends any message.
+ *   - If the sender is the admin (process.env.ADMIN_WAID), send a special admin menu.
+ *   - Process button responses accordingly.
  */
 
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
-// Keep track of which users have already been shown the menu
-const shownMenu = new Set();
-
+// Create a new client with persistent session (LocalAuth stores session files)
 const client = new Client({
-  authStrategy: new LocalAuth() // persists session so you don't have to re-scan the QR every time
+  authStrategy: new LocalAuth()
 });
 
-// Display QR code in terminal for initial login
+// Print QR code to console when generated
 client.on('qr', (qr) => {
-  console.log('Scan this QR code with your phone to log in:');
+  console.log('Scan the following QR code with your phone to log in:');
   qrcode.generate(qr, { small: true });
 });
 
-// Once authenticated and ready
+// Once the client is ready, log a message
 client.on('ready', () => {
   console.log('WhatsApp client is ready!');
 });
 
-// Listen for incoming messages
-client.on('message', async (msg) => {
-  const userMessage = msg.body.toLowerCase().trim();
-  const userId = msg.from; // e.g. '2547xxxxxx@c.us'
-
-  // If it's the first time we see this user, show them the menu immediately
-  if (!shownMenu.has(userId)) {
-    shownMenu.add(userId);
-    await sendMenu(msg.from);
-    return; // Stop here so we don't process the rest
-  }
-
-  // If the user explicitly types "menu" again, show the menu
-  if (userMessage === 'menu') {
-    await sendMenu(msg.from);
-    return;
-  }
-
-  // If this is a button response, handle it
-  if (msg.type === 'buttons_response') {
-    handleButtonReply(msg);
-    return;
-  }
-
-  // Otherwise, fallback for any text that isn't "menu"
-  await msg.reply(
-    "Thank you for contacting FY'S PROPERTY. Type *menu* at any time to see the options again."
-  );
-});
-
-/**
- * Sends a 3-button menu to the specified WhatsApp ID.
- * We can only send up to 3 quick-reply buttons in one message.
- */
-async function sendMenu(to) {
+// Function to send the interactive menu (for regular users)
+async function sendMenu(recipient) {
+  // WhatsApp currently supports up to 3 quick reply buttons
   const templateButtons = [
     {
       index: 1,
@@ -87,44 +55,84 @@ async function sendMenu(to) {
   ];
 
   const buttonMessage = {
-    text: "Hello! Welcome to FY'S PROPERTY.\n\nPlease choose an option below:",
+    text: "Welcome to FY'S PROPERTY.\n\nPlease choose an option:",
     footer: 'FY’S PROPERTY Bot',
     templateButtons: templateButtons
   };
 
-  await client.sendMessage(to, buttonMessage);
+  await client.sendMessage(recipient, buttonMessage);
+  console.log(`Sent menu to ${recipient}`);
 }
 
-/**
- * Handles a user's button choice.
- */
+// Function to send a special interactive menu for admin testing
+async function sendAdminMenu(recipient) {
+  // For admin, we can reuse the same buttons or adjust the text as needed.
+  const templateButtons = [
+    {
+      index: 1,
+      quickReplyButton: {
+        displayText: 'Test: View Listings',
+        id: 'admin_option1'
+      }
+    },
+    {
+      index: 2,
+      quickReplyButton: {
+        displayText: 'Test: Buy Property',
+        id: 'admin_option2'
+      }
+    },
+    {
+      index: 3,
+      quickReplyButton: {
+        displayText: 'Test: Sell Property',
+        id: 'admin_option3'
+      }
+    }
+  ];
+
+  const buttonMessage = {
+    text: "ADMIN: FY'S PROPERTY Bot is live.\n\nPlease choose a test option:",
+    footer: 'FY’S PROPERTY Admin Menu',
+    templateButtons: templateButtons
+  };
+
+  await client.sendMessage(recipient, buttonMessage);
+  console.log(`Sent admin menu to ${recipient}`);
+}
+
+// Function to handle button responses
 async function handleButtonReply(msg) {
   const buttonId = msg.selectedButtonId;
+  console.log(`Button response from ${msg.from}: ${buttonId}`);
 
-  switch (buttonId) {
-    case 'option1':
-      await msg.reply(
-        "Here are our current listings:\n1. Cozy Apartment - $250,000\n2. Modern Villa - $750,000\n3. Luxury Condo - $500,000\n\nReply with the property number if you'd like more details."
-      );
-      break;
-
-    case 'option2':
-      await msg.reply(
-        "You've chosen to buy a property. Please reply with the property number or name, and we'll guide you further."
-      );
-      break;
-
-    case 'option3':
-      await msg.reply(
-        "To sell your property, please send us details (address, price, photos). Our team will review and contact you soon."
-      );
-      break;
-
-    default:
-      await msg.reply("Unknown option. Please type 'menu' to see choices again.");
-      break;
+  if (buttonId === 'option1' || buttonId === 'admin_option1') {
+    await msg.reply("Our current listings:\n1. Cozy Apartment - $250,000\n2. Modern Villa - $750,000\n3. Luxury Condo - $500,000\n\nReply with the property number for more details.");
+  } else if (buttonId === 'option2' || buttonId === 'admin_option2') {
+    await msg.reply("You've chosen to buy a property. Please reply with the property number or name, and we'll guide you further.");
+  } else if (buttonId === 'option3' || buttonId === 'admin_option3') {
+    await msg.reply("To sell your property, please send us the details (address, price, photos). Our team will review your submission and contact you.");
+  } else {
+    await msg.reply("Unknown option. Please type 'menu' if you need to see the options again.");
   }
 }
+
+// Main event: any incoming message
+client.on('message', async (msg) => {
+  // If the message is a button response, process it accordingly.
+  if (msg.type === 'buttons_response') {
+    await handleButtonReply(msg);
+    return;
+  }
+
+  // For any other message, immediately send the interactive menu.
+  // If the sender is the admin, send the admin menu.
+  if (msg.from === process.env.ADMIN_WAID) {
+    await sendAdminMenu(msg.from);
+  } else {
+    await sendMenu(msg.from);
+  }
+});
 
 // Initialize the client
 client.initialize();
