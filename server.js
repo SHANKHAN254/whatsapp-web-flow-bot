@@ -2,83 +2,85 @@
  * server.js
  *
  * WhatsApp Web Bot that:
- *  - Shows a QR code for login.
- *  - Alerts the admin on startup.
- *  - Immediately replies to any user message with a button menu, unless the user
- *    clicked one of the buttons, in which case it processes that choice.
+ *   - Shows a QR code for login.
+ *   - Immediately sends an "I'm alive" message to the admin on startup.
+ *   - Replies to ANY incoming user message with a 3-button menu:
+ *       [View Listings], [Buy Property], [Sell Property].
+ *   - Handles button selections to show different flows.
  */
 
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth, Buttons } = require('whatsapp-web.js');
-require('dotenv').config();
 
-// Create the client with local file-based authentication (so you don't have to re-scan every time).
+// 1. SET YOUR ADMIN NUMBER HERE (with country code, no plus sign)
+const ADMIN_NUMBER = '254701339573'; // Example: '254701339573'
+
+// 2. Create a client with LocalAuth so you don't have to scan every time.
 const client = new Client({
   authStrategy: new LocalAuth()
 });
 
-// When a QR code is generated, display it in the terminal.
+// 3. Show QR code in terminal on startup
 client.on('qr', (qr) => {
-  console.log('Scan the following QR code with your phone to log in:');
+  console.log('Scan this QR code with WhatsApp (Linked Devices):');
   qrcode.generate(qr, { small: true });
 });
 
-// When the client is ready, log a message and send an admin alert.
+// 4. When the client is ready, send admin a confirmation message
 client.on('ready', async () => {
   console.log('WhatsApp client is ready!');
 
-  // Alert the admin (number in .env as ADMIN_WAID)
-  const adminNumber = process.env.ADMIN_WAID || '254701339573';
   try {
-    await client.sendMessage(adminNumber, "FY’S PROPERTY Bot is live. Please test now by sending any message.");
-    console.log(`Alert message sent to admin: ${adminNumber}`);
-  } catch (error) {
-    console.error('Error sending admin message:', error);
+    await client.sendMessage(ADMIN_NUMBER, "FY’S PROPERTY Bot is now LIVE. Please test by sending any message.");
+    console.log(`Sent 'Bot is live' message to admin (${ADMIN_NUMBER}).`);
+  } catch (err) {
+    console.error('Error sending admin alert:', err);
   }
 });
 
 /**
- * Listen for incoming messages from any user.
- * - If the user typed "View Listings", "Buy Property", or "Sell Property", we handle that choice.
- * - Otherwise, we show them the 3-button menu.
+ * 5. Main message handler:
+ *    - If the message text matches a button label, handle it.
+ *    - Otherwise, send the 3-button menu immediately.
  */
 client.on('message', async (msg) => {
-  console.log(`Message from ${msg.from}: ${msg.body}`);
+  console.log(`Incoming from ${msg.from}: ${msg.body}`);
 
-  // Check if user clicked one of the button labels:
-  if (msg.body === 'View Listings') {
-    await msg.reply(
-      "Here are our current listings:\n1. Cozy Apartment - $250,000\n2. Modern Villa - $750,000\n3. Luxury Condo - $500,000\n\nReply with the property number if you'd like more details."
-    );
-  } else if (msg.body === 'Buy Property') {
-    await msg.reply(
-      "You chose to buy a property. Please reply with the property number or name, and we'll guide you further."
-    );
-  } else if (msg.body === 'Sell Property') {
-    await msg.reply(
-      "To sell your property, please send us the details (address, price, photos). Our team will review your submission and contact you soon."
-    );
-  } else {
-    // For any other text, immediately send the menu with 3 buttons.
-    const menu = new Buttons(
-      "Welcome to FY’S PROPERTY.\nPlease choose an option below:",
-      [
-        { body: 'View Listings', id: 'option1' },
-        { body: 'Buy Property', id: 'option2' },
-        { body: 'Sell Property', id: 'option3' }
-      ],
-      "FY’S PROPERTY Bot",
-      "Select an option:"
-    );
+  // If user clicked one of the button labels, handle it:
+  const text = msg.body.trim().toLowerCase();
 
-    try {
-      await client.sendMessage(msg.from, menu);
-      console.log(`Sent menu to ${msg.from}`);
-    } catch (error) {
-      console.error(`Error sending menu to ${msg.from}:`, error);
-    }
+  if (text === 'view listings') {
+    await msg.reply("Here are our current listings:\n1. Cozy Apartment - $250,000\n2. Modern Villa - $750,000\n3. Luxury Condo - $500,000");
+    return;
+  } 
+  else if (text === 'buy property') {
+    await msg.reply("You chose to buy a property. Please reply with the property number or details.");
+    return;
+  } 
+  else if (text === 'sell property') {
+    await msg.reply("You chose to sell a property. Please send the details (address, price, photos).");
+    return;
+  }
+
+  // Otherwise, user typed something else -> show them the 3-button menu:
+  const buttonMenu = new Buttons(
+    "Welcome to FY’S PROPERTY.\nPlease choose an option below:",
+    [
+      { body: 'View Listings' },
+      { body: 'Buy Property' },
+      { body: 'Sell Property' }
+    ],
+    'FY’S PROPERTY Bot',
+    'Select:'
+  );
+
+  try {
+    await client.sendMessage(msg.from, buttonMenu);
+    console.log(`Sent button menu to ${msg.from}`);
+  } catch (error) {
+    console.error(`Error sending button menu to ${msg.from}:`, error);
   }
 });
 
-// Initialize the client (this triggers QR code generation and event listeners).
+// 6. Initialize the client (this triggers the QR code event and the ready event).
 client.initialize();
