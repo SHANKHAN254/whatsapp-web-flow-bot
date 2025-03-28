@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-web-flow-bot",
   "version": "1.0.0",
-  "description": "WhatsApp Web Bot with a QR code login and interactive button-based flow",
+  "description": "WhatsApp Web Bot with a 5-item list menu for property flows",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,6 +9,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "dotenv": "^16.0.3",
     "qrcode-terminal": "^0.12.0",
     "whatsapp-web.js": "^1.20.5"
   }
