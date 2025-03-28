@@ -1,66 +1,68 @@
 /**
  * server.js
  *
- * WhatsApp Web Bot using List messages:
- *  - Shows a QR code in the terminal for login.
- *  - Alerts the admin number on startup ("Bot is live").
- *  - Immediately replies to any user message with a 5-item list:
- *    [View Listings, Buy Property, Sell Property, Contact Admin, FAQs/Help]
- *  - Handles the user's selection from the list.
- *  - If user selects "Contact Admin," sends the admin a notification about which user wants help.
+ * WhatsApp Web Bot that:
+ *  - Displays a QR code on startup (scan with WhatsApp -> Linked Devices).
+ *  - Alerts the admin (ADMIN_NUMBER) on startup. Admin number must be "XXXXXXXXXXX@c.us".
+ *  - On any incoming user message, sends a 5-item List menu:
+ *      [View Listings, Buy Property, Sell Property, Contact Admin, FAQs/Help].
+ *  - Handles list responses:
+ *      - If user picks "Contact Admin," the admin is notified with the user's ID.
+ *      - Other items respond with appropriate text.
+ *
+ * IMPORTANT:
+ *   1. ADMIN_NUMBER must be in the format "XXXXXXXXXXX@c.us".
+ *   2. The phone that runs the bot must remain online.
+ *   3. If you see "Invalid WID error," double-check your phone numbers.
  */
 
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth, List } = require('whatsapp-web.js');
 
-// Hardcode your admin’s phone number here (no plus sign, just digits).
-// Example: "254701339573" for +254 701 339573
-const ADMIN_NUMBER = '254701339573';
+// 1. Set your admin’s WhatsApp ID in the format "<phone>@c.us" (no plus sign).
+//    Example: "254701339573@c.us" for +254 701 339573.
+const ADMIN_NUMBER = '254701339573@c.us';
 
-// Create the client with local file-based auth so you don’t have to re-scan every time
+// Create the client, saving session locally so you don’t have to re-scan every time
 const client = new Client({
   authStrategy: new LocalAuth()
 });
 
-// Show the QR code in terminal when generated
+// When QR code is generated, display it in the terminal
 client.on('qr', (qr) => {
-  console.log('Scan this QR code with WhatsApp (Linked Devices):');
+  console.log('Scan this QR code with your phone (Linked Devices in WhatsApp):');
   qrcode.generate(qr, { small: true });
 });
 
-// When client is ready, log and alert admin
+// When the client is ready, send the admin a "Bot is live" message
 client.on('ready', async () => {
   console.log('WhatsApp client is ready!');
   try {
-    await client.sendMessage(ADMIN_NUMBER, "FY’S PROPERTY Bot is LIVE! Please test by sending a message.");
-    console.log(`Sent startup alert to admin (${ADMIN_NUMBER}).`);
-  } catch (err) {
-    console.error('Error sending admin alert:', err);
+    await client.sendMessage(ADMIN_NUMBER, "FY’S PROPERTY Bot is now LIVE. Please test by sending a message.");
+    console.log(`Startup alert sent to admin: ${ADMIN_NUMBER}`);
+  } catch (error) {
+    console.error('Error sending admin alert:', error);
   }
 });
 
 /**
- * Whenever ANY user sends ANY text message, we:
- *  - If it's a "list response," handle their selection.
- *  - Otherwise, immediately send them the 5-item list.
+ * This event fires whenever ANY user sends ANY text message.
+ * We'll:
+ *  - If it's a list response, handle that choice.
+ *  - Otherwise, send them the 5-item List menu.
  */
 client.on('message', async (msg) => {
-  console.log(`Incoming from ${msg.from}: ${msg.body}`);
+  console.log(`Incoming message from ${msg.from}: ${msg.body}`);
 
-  // If the message is a "list response," we handle it differently
+  // If user responded to a List
   if (msg.type === 'list_response') {
-    // The user selected an item from the list
-    const selectedRowId = msg.selectedRowId;
-    console.log(`User selected: ${selectedRowId}`);
+    const selectedRowId = msg.selectedRowId; // The "id" of the chosen row
+    console.log(`User selected rowId: ${selectedRowId}`);
 
     switch (selectedRowId) {
       case 'view_listings':
         await msg.reply(
-          "Here are our listings:\n" +
-          "1. Cozy Apartment - $250,000\n" +
-          "2. Modern Villa - $750,000\n" +
-          "3. Luxury Condo - $500,000\n\n" +
-          "Reply with the property number if you'd like more details."
+          "Here are our listings:\n1. Cozy Apartment - $250,000\n2. Modern Villa - $750,000\n3. Luxury Condo - $500,000\n\nReply with the property number if you'd like more details."
         );
         break;
 
@@ -78,46 +80,45 @@ client.on('message', async (msg) => {
 
       case 'contact_admin':
         await msg.reply("Your request to contact the admin has been received. We'll connect you shortly.");
-        // Notify the admin
         try {
+          // Notify admin
           await client.sendMessage(
             ADMIN_NUMBER,
-            `User ${msg.from} wants to contact you regarding FY’S PROPERTY. Please reach out to them.`
+            `User ${msg.from} wants to contact you about FY’S PROPERTY. Please reach out to them.`
           );
-          console.log("Notified admin about contact request.");
-        } catch (error) {
-          console.error("Error notifying admin:", error);
+          console.log(`Notified admin that ${msg.from} wants contact.`);
+        } catch (err) {
+          console.error('Error notifying admin:', err);
         }
         break;
 
       case 'faqs_help':
         await msg.reply(
           "FAQs:\n" +
-          "1. How to view listings? Reply with 'menu' to see the list.\n" +
-          "2. How to buy? Select 'Buy Property' from the list.\n" +
-          "3. How to sell? Select 'Sell Property' from the list.\n" +
-          "For more help, reply 'menu' again."
+          "1. How to view listings? Send any message to see the list, then pick 'View Listings'.\n" +
+          "2. How to buy? Pick 'Buy Property' from the list.\n" +
+          "3. How to sell? Pick 'Sell Property' from the list.\n" +
+          "4. Contact Admin if you need direct assistance.\n" +
+          "Type anything again to see the menu."
         );
         break;
 
       default:
-        await msg.reply("Unknown option. Please type 'menu' if you'd like to see the list again.");
+        await msg.reply("Unknown option. Please send any message again to see the menu.");
         break;
     }
-    return;
+  } else {
+    // If it's NOT a list response, show them the 5-item list
+    await sendListMenu(msg.from);
   }
-
-  // Otherwise, the user typed normal text (not a list selection).
-  // Immediately show them a 5-item list.
-  await sendListMenu(msg.from);
 });
 
 /**
- * sendListMenu: Sends a "List" message with 5 items to the user.
- * This is how we can exceed the 3-button limit.
+ * Sends a 5-item List menu to the given recipient. The user can pick 1 of 5 rows.
  */
 async function sendListMenu(recipient) {
-  // Each "section" can have multiple "rows"
+  // Must be "XXXXXXXXXXX@c.us" for a valid WID
+  // The library usually auto-handles user 'from' addresses, but let's ensure admin is correct
   const sections = [
     {
       title: 'Main Menu',
@@ -131,13 +132,12 @@ async function sendListMenu(recipient) {
     }
   ];
 
-  // Create the List message
   const list = new List(
-    "Welcome to FY’S PROPERTY.\nPlease select an option below:",
-    "Show Options",  // the button text
+    "Welcome to FY’S PROPERTY.\nSelect an option below:",
+    "Show Options", // the button text
     sections,
     "FY’S PROPERTY Bot", // header
-    "Choose from the menu:" // footer
+    "Choose from the menu." // footer
   );
 
   try {
@@ -148,5 +148,5 @@ async function sendListMenu(recipient) {
   }
 }
 
-// Initialize the client
+// Finally, initialize the client (this triggers QR code generation, etc.)
 client.initialize();
